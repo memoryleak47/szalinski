@@ -369,6 +369,35 @@ fn main() {
     };
 
     let rules = szalinski_egg::rules::rules();
+    let best = run_original(initial_expr.clone(), rules);
+    let best = (CostFn.cost_rec(&best), best);
+
+    println!("Best ({}): {}", best.0, best.1.pretty(80));
+
+    let report = RunResult {
+        initial_expr: initial_expr.pretty(80),
+        initial_cost,
+        iterations: Vec::new(), // unknown
+        final_cost: best.0,
+        final_expr: best.1.pretty(80),
+        extract_time: 42.0, // unknown
+        final_scad: format!("{}", Scad::new(&best.1)),
+        stop_reason: StopReason::Other(format!("unknown")),
+        ast_size: ast_size(&best.1),
+        ast_depth: ast_depth(&best.1),
+        n_mapis: n_mapis(&best.1),
+        depth_under_mapis: depth_under_mapis(&best.1),
+    };
+
+    let out_file = std::fs::File::create(&args[2]).expect("failed to open output");
+    serde_json::to_writer_pretty(out_file, &report).unwrap();
+}
+
+fn run_original(initial_expr: RecExpr<Cad>, rules: Vec<Rewrite<Cad, MetaAnalysis>>) -> RecExpr<Cad> {
+    sz_param!(ITERATIONS: usize);
+    sz_param!(NODE_LIMIT: usize);
+    sz_param!(TIMEOUT: f64);
+
     let runner = MyRunner::new(MetaAnalysis::default())
         .with_iter_limit(*ITERATIONS)
         .with_node_limit(*NODE_LIMIT)
@@ -393,24 +422,9 @@ fn main() {
     let extract_time = Instant::now();
     let best = Extractor::new(&runner.egraph, CostFn).find_best(root);
     let extract_time = extract_time.elapsed().as_secs_f64();
+    best.1
+}
 
-    println!("Best ({}): {}", best.0, best.1.pretty(80));
-
-    let report = RunResult {
-        initial_expr: initial_expr.pretty(80),
-        initial_cost,
-        iterations: runner.iterations,
-        final_cost: best.0,
-        final_expr: best.1.pretty(80),
-        extract_time,
-        final_scad: format!("{}", Scad::new(&best.1)),
-        stop_reason: runner.stop_reason.unwrap(),
-        ast_size: ast_size(&best.1),
-        ast_depth: ast_depth(&best.1),
-        n_mapis: n_mapis(&best.1),
-        depth_under_mapis: depth_under_mapis(&best.1),
-    };
-
-    let out_file = std::fs::File::create(&args[2]).expect("failed to open output");
-    serde_json::to_writer_pretty(out_file, &report).unwrap();
+fn run_detour(initial_expr: RecExpr<Cad>, rules: Vec<Rewrite<Cad, MetaAnalysis>>) -> RecExpr<Cad> {
+    szalinski_egg::detour::eqsat_pat_detour(initial_expr, &rules, 3)
 }

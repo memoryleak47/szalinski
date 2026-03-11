@@ -1,6 +1,6 @@
 // === minqueue ===
 
-use egg::{Id, EGraph, Language, Extractor, AstSize, FromOp, RecExpr, Rewrite, Subst, ENodeOrVar, PatternAst, CostFunction};
+use egg::{Id, EGraph, Language, Extractor, AstSize, FromOp, RecExpr, Rewrite, Subst, ENodeOrVar, PatternAst, CostFunction, Analysis};
 
 use std::cmp::Ordering;
 use std::collections::{BinaryHeap, HashMap, BTreeMap};
@@ -39,7 +39,7 @@ impl<U: Ord, T: Eq> Ord for WithOrdRev<U, T> {
 
 // === ctxt cost ===
 
-pub fn compute_ctxt_costs<L: Language>(root: Id, eg: &EGraph<L, ()>, ex: &Extractor<AstSize, L, ()>) -> HashMap<Id, usize> {
+pub fn compute_ctxt_costs<L: Language, N: Analysis<L>>(root: Id, eg: &EGraph<L, N>, ex: &Extractor<AstSize, L, N>) -> HashMap<Id, usize> {
     let mut ctxt_cost = HashMap::new();
 
     let mut queue: MinPrioQueue<usize, Id> = MinPrioQueue::new();
@@ -72,10 +72,9 @@ pub fn compute_ctxt_costs<L: Language>(root: Id, eg: &EGraph<L, ()>, ex: &Extrac
 
 use std::fmt::Display;
 
-pub fn eqsat_pat_detour<L: Language + Display + FromOp>(init_term: &str, rws: &[Rewrite<L, ()>], stop_size: usize) {
-    let st: RecExpr<L> = init_term.parse().unwrap();
+pub fn eqsat_pat_detour<L: Language + Display + FromOp, N: Analysis<L> + Default>(st: RecExpr<L>, rws: &[Rewrite<L, N>], stop_size: usize) -> RecExpr<L> {
     println!("Initial: {st}");
-    let mut eg = EGraph::new(());
+    let mut eg = EGraph::default();
     let i = eg.add_expr(&st);
 
     eg.rebuild();
@@ -86,11 +85,12 @@ pub fn eqsat_pat_detour<L: Language + Display + FromOp>(init_term: &str, rws: &[
         let t = ex.find_best(i);
         println!("Detour Extracted: {}", t.1);
         println!("Total Size: {}", eg.total_size());
-        if t.0 <= stop_size { break }
+        if t.0 <= stop_size { return t.1 }
     }
+    panic!()
 }
 
-pub fn pat_detour_eqsat_step<L: Language + Display>(c: usize, root: Id, rws: &[Rewrite<L, ()>], eg: &mut EGraph<L, ()>) {
+pub fn pat_detour_eqsat_step<L: Language + Display, N: Analysis<L>>(c: usize, root: Id, rws: &[Rewrite<L, N>], eg: &mut EGraph<L, N>) {
     let ex = Extractor::new(&eg, AstSize);
     let ctxt_cost = compute_ctxt_costs(root, eg, &ex);
 
@@ -147,7 +147,7 @@ pub fn pat_detour_eqsat_step<L: Language + Display>(c: usize, root: Id, rws: &[R
     eg.rebuild();
 }
 
-fn pat_cost<L: Language>(pat: &PatternAst<L>, subst: &Subst, ex: &Extractor<AstSize, L, ()>) -> usize {
+fn pat_cost<L: Language, N: Analysis<L>>(pat: &PatternAst<L>, subst: &Subst, ex: &Extractor<AstSize, L, N>) -> usize {
     let mut vec: Vec<usize> = Vec::new();
     for i in 0..pat.as_ref().len() {
         let cost = match &pat[i.into()] {
@@ -161,7 +161,7 @@ fn pat_cost<L: Language>(pat: &PatternAst<L>, subst: &Subst, ex: &Extractor<AstS
 
 // === misc ===
 
-pub fn lookup_pat<L: Language>(pat: &PatternAst<L>, eg: &EGraph<L, ()>, subst: &Subst) -> Option<Id> {
+pub fn lookup_pat<L: Language, N: Analysis<L>>(pat: &PatternAst<L>, eg: &EGraph<L, N>, subst: &Subst) -> Option<Id> {
     let mut vec = Vec::new();
     for i in 0..pat.as_ref().len() {
         match &pat[i.into()] {
