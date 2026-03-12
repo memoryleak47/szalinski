@@ -71,26 +71,29 @@ pub fn compute_ctxt_costs<L: Language, N: Analysis<L>>(root: Id, eg: &EGraph<L, 
 // === pat detour ===
 
 use std::fmt::Display;
+use std::time::{Instant, Duration};
 
-pub fn eqsat_pat_detour<L: Language + Display + FromOp, N: Analysis<L> + Default>(st: RecExpr<L>, rws: &[Rewrite<L, N>], stop_size: usize) -> RecExpr<L> {
+pub fn eqsat_pat_detour<L: Language + Display + FromOp, N: Analysis<L> + Default>(st: RecExpr<L>, rws: &[Rewrite<L, N>], time_limit: usize) -> RecExpr<L> {
     println!("Initial: {st}");
     let mut eg = EGraph::default();
     let i = eg.add_expr(&st);
 
-    eg.rebuild();
-    for c in 0..520 {
-        pat_detour_eqsat_step(c, i, rws, &mut eg);
+    let start = Instant::now();
 
-        let ex = Extractor::new(&eg, AstSize);
-        let t = ex.find_best(i);
-        println!("Detour Extracted: {}", t.1);
-        println!("Total Size: {}", eg.total_size());
-        if t.0 <= stop_size { return t.1 }
+    eg.rebuild();
+    loop {
+        pat_detour_eqsat_step(i, rws, &mut eg);
+        if start.elapsed() > Duration::from_secs(time_limit as _) { break }
     }
-    panic!()
+
+    let ex = Extractor::new(&eg, AstSize);
+    let t = ex.find_best(i).1;
+    println!("Detour Extracted: {}", t);
+    println!("Total Size: {}", eg.total_size());
+    t
 }
 
-pub fn pat_detour_eqsat_step<L: Language + Display, N: Analysis<L>>(c: usize, root: Id, rws: &[Rewrite<L, N>], eg: &mut EGraph<L, N>) {
+pub fn pat_detour_eqsat_step<L: Language + Display, N: Analysis<L>>(root: Id, rws: &[Rewrite<L, N>], eg: &mut EGraph<L, N>) {
     let ex = Extractor::new(&eg, AstSize);
     let ctxt_cost = compute_ctxt_costs(root, eg, &ex);
 
