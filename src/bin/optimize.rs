@@ -369,7 +369,7 @@ fn main() {
     };
 
     let rules = szalinski_egg::rules::rules();
-    let best = run_original(initial_expr.clone(), rules);
+    let best = run_detour(initial_expr.clone(), rules);
     let best = (CostFn.cost_rec(&best), best);
 
     println!("Best ({}): {}", best.0, best.1.pretty(80));
