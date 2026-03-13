@@ -80,18 +80,21 @@ pub fn compute_ctxt_costs(root: Id, eg: &EGraph<L, N>, ex: &Extractor<C, L, N>) 
 use std::fmt::Display;
 use std::time::{Instant, Duration};
 
-pub fn eqsat_pat_detour(st: RecExpr<L>, rws: &[Rewrite<L, N>], time_limit_secs: f64) -> RecExpr<L> {
+pub fn eqsat_pat_detour(st: RecExpr<L>, rws: &[Rewrite<L, N>], time_limit_secs: f64, node_limit: usize) -> RecExpr<L> {
     let mut eg = EGraph::default();
     let i = eg.add_expr(&st);
 
     let start = Instant::now();
+
+    let mut stop_reason = String::new();
 
     eg.rebuild();
     let mut it_counter = 0;
     loop {
         pat_detour_eqsat_step(i, rws, &mut eg);
         it_counter += 1;
-        if start.elapsed() > Duration::from_secs_f64(time_limit_secs) { break }
+        if start.elapsed() > Duration::from_secs_f64(time_limit_secs) { stop_reason = format!("timeout: {}", start.elapsed().as_secs_f64()); break }
+        if eg.total_size() > node_limit { stop_reason = format!("node limit: {}", eg.total_size()); break }
     }
 
     let ex = Extractor::new(&eg, mk_C());
@@ -99,7 +102,7 @@ pub fn eqsat_pat_detour(st: RecExpr<L>, rws: &[Rewrite<L, N>], time_limit_secs: 
 
     println!("Detour report");
     println!("=============");
-    println!("Stop reason: timeout 10s");
+    println!("Stop reason: {stop_reason}");
     println!("Iterations: {it_counter}");
     println!("Egraph size: {} nodes, {} classes, {} memo", eg.total_number_of_nodes(), eg.number_of_classes(), eg.total_size());
     println!("Detour Extracted: {}", t);

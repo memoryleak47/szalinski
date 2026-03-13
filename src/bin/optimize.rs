@@ -440,6 +440,7 @@ fn run_original(initial_expr: RecExpr<Cad>, rules: Vec<Rewrite<Cad, MetaAnalysis
 
 fn run_detour(initial_expr: RecExpr<Cad>, rules: Vec<Rewrite<Cad, MetaAnalysis>>) -> RecExpr<Cad> {
     sz_param!(TIMEOUT: f64);
+    sz_param!(NODE_LIMIT: usize);
 
-    szalinski_egg::detour::eqsat_pat_detour(initial_expr, &rules, *TIMEOUT)
+    szalinski_egg::detour::eqsat_pat_detour(initial_expr, &rules, *TIMEOUT, *NODE_LIMIT)
 }
