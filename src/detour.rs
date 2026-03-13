@@ -126,15 +126,17 @@ pub fn pat_detour_eqsat_step(root: Id, rws: &[Rewrite<L, N>], eg: &mut EGraph<L,
     let root_cost = ex.find_best_cost(root);
 
     let og_data = eg_data(eg);
-    let mut dirty = false;
+    let mut found_cost = None;
+
+    const OFFSET: f64 = 10.0;
 
     for (full_cost, new_apps) in matches {
+        if let Some(found) = found_cost { if full_cost > found + r64(OFFSET) { break } }
         for (rw_i, lhs, subst, cx_cost, pat_cost) in &new_apps {
             let rw = &rws[*rw_i];
             rw.applier.apply_one(eg, *lhs, subst, None, rw.name);
-            if eg_data(eg) != og_data { dirty = true; }
+            if eg_data(eg) != og_data { found_cost = Some(full_cost); }
         }
-        if dirty { break }
     }
 
     eg.rebuild();
