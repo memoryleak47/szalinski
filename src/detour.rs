@@ -80,7 +80,7 @@ pub fn compute_ctxt_costs(root: Id, eg: &EGraph<L, N>, ex: &Extractor<C, L, N>) 
 use std::fmt::Display;
 use std::time::{Instant, Duration};
 
-pub fn eqsat_pat_detour(st: RecExpr<L>, rws: &[Rewrite<L, N>], time_limit: usize) -> RecExpr<L> {
+pub fn eqsat_pat_detour(st: RecExpr<L>, rws: &[Rewrite<L, N>], time_limit_secs: f64) -> RecExpr<L> {
     println!("Initial: {st}");
     let mut eg = EGraph::default();
     let i = eg.add_expr(&st);
@@ -92,7 +92,7 @@ pub fn eqsat_pat_detour(st: RecExpr<L>, rws: &[Rewrite<L, N>], time_limit: usize
     loop {
         pat_detour_eqsat_step(i, rws, &mut eg);
         it_counter += 1;
-        if start.elapsed() > Duration::from_secs(time_limit as _) { break }
+        if start.elapsed() > Duration::from_secs_f64(time_limit_secs) { break }
     }
 
     let ex = Extractor::new(&eg, mk_C());
