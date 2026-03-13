@@ -1,6 +1,6 @@
 // === minqueue ===
 
-use egg::{Id, EGraph, Language, Extractor, AstSize, FromOp, RecExpr, Rewrite, Subst, ENodeOrVar, PatternAst, CostFunction, Analysis};
+use egg::{Id, EGraph, Language, Extractor, FromOp, RecExpr, Rewrite, Subst, ENodeOrVar, PatternAst, CostFunction, Analysis};
 
 use std::cmp::Ordering;
 use std::collections::{BinaryHeap, HashMap, BTreeMap};
@@ -41,8 +41,10 @@ impl<U: Ord, T: Eq> Ord for WithOrdRev<U, T> {
 
 type L = crate::cad::Cad;
 type N = crate::cad::MetaAnalysis;
+type C = egg::AstSize; // crate::cad::CostFn;
+fn mk_C() -> C { egg::AstSize }
 
-pub fn compute_ctxt_costs(root: Id, eg: &EGraph<L, N>, ex: &Extractor<AstSize, L, N>) -> HashMap<Id, usize> {
+pub fn compute_ctxt_costs(root: Id, eg: &EGraph<L, N>, ex: &Extractor<C, L, N>) -> HashMap<Id, usize> {
     let mut ctxt_cost = HashMap::new();
 
     let mut queue: MinPrioQueue<usize, Id> = MinPrioQueue::new();
@@ -54,7 +56,7 @@ pub fn compute_ctxt_costs(root: Id, eg: &EGraph<L, N>, ex: &Extractor<AstSize, L
         if ctxt_cost.contains_key(&i) { continue }
         ctxt_cost.insert(i, cst);
         for e in &eg[i].nodes {
-            let e_cost = AstSize.cost(e, |k| ex.find_best_cost(k));
+            let e_cost = mk_C().cost(e, |k| ex.find_best_cost(k));
             for &c in e.children() {
                 // optimization: don't push junk to the queue.
                 // NOTE: if we remembered what's the best thing we already pushed to the queue for some class,
@@ -89,7 +91,7 @@ pub fn eqsat_pat_detour(st: RecExpr<L>, rws: &[Rewrite<L, N>], time_limit: usize
         if start.elapsed() > Duration::from_secs(time_limit as _) { break }
     }
 
-    let ex = Extractor::new(&eg, AstSize);
+    let ex = Extractor::new(&eg, mk_C());
     let t = ex.find_best(i).1;
     println!("Detour Extracted: {}", t);
     println!("Total Size: {}", eg.total_size());
@@ -97,7 +99,7 @@ pub fn eqsat_pat_detour(st: RecExpr<L>, rws: &[Rewrite<L, N>], time_limit: usize
 }
 
 pub fn pat_detour_eqsat_step(root: Id, rws: &[Rewrite<L, N>], eg: &mut EGraph<L, N>) {
-    let ex = Extractor::new(&eg, AstSize);
+    let ex = Extractor::new(&eg, mk_C());
     let ctxt_cost = compute_ctxt_costs(root, eg, &ex);
 
     let mut matches: BTreeMap</*detour cost*/ usize, Vec<(/*rw id*/ usize, Id, Subst, /*ctxt_cost*/ usize, /*pat_cost*/ usize)>> = BTreeMap::default();
@@ -141,11 +143,11 @@ fn eg_data(eg: &EGraph<L, N>) -> EGData {
     (eg.number_of_classes(), eg.total_size())
 }
 
-fn pat_cost(pat: &PatternAst<L>, subst: &Subst, ex: &Extractor<AstSize, L, N>) -> usize {
+fn pat_cost(pat: &PatternAst<L>, subst: &Subst, ex: &Extractor<C, L, N>) -> usize {
     let mut vec: Vec<usize> = Vec::new();
     for i in 0..pat.as_ref().len() {
         let cost = match &pat[i.into()] {
-            ENodeOrVar::ENode(n) => n.children().iter().map(|x| vec[usize::from(*x)]).sum::<usize>() + 1,
+            ENodeOrVar::ENode(n) => mk_C().cost(n, |i| vec[usize::from(i)]),
             ENodeOrVar::Var(v) => ex.find_best_cost(subst[*v]),
         };
         vec.push(cost);
