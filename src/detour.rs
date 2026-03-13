@@ -39,7 +39,10 @@ impl<U: Ord, T: Eq> Ord for WithOrdRev<U, T> {
 
 // === ctxt cost ===
 
-pub fn compute_ctxt_costs<L: Language, N: Analysis<L>>(root: Id, eg: &EGraph<L, N>, ex: &Extractor<AstSize, L, N>) -> HashMap<Id, usize> {
+type L = crate::cad::Cad;
+type N = crate::cad::MetaAnalysis;
+
+pub fn compute_ctxt_costs(root: Id, eg: &EGraph<L, N>, ex: &Extractor<AstSize, L, N>) -> HashMap<Id, usize> {
     let mut ctxt_cost = HashMap::new();
 
     let mut queue: MinPrioQueue<usize, Id> = MinPrioQueue::new();
@@ -73,7 +76,7 @@ pub fn compute_ctxt_costs<L: Language, N: Analysis<L>>(root: Id, eg: &EGraph<L, 
 use std::fmt::Display;
 use std::time::{Instant, Duration};
 
-pub fn eqsat_pat_detour<L: Language + Display + FromOp, N: Analysis<L> + Default>(st: RecExpr<L>, rws: &[Rewrite<L, N>], time_limit: usize) -> RecExpr<L> {
+pub fn eqsat_pat_detour(st: RecExpr<L>, rws: &[Rewrite<L, N>], time_limit: usize) -> RecExpr<L> {
     println!("Initial: {st}");
     let mut eg = EGraph::default();
     let i = eg.add_expr(&st);
@@ -93,7 +96,7 @@ pub fn eqsat_pat_detour<L: Language + Display + FromOp, N: Analysis<L> + Default
     t
 }
 
-pub fn pat_detour_eqsat_step<L: Language + Display, N: Analysis<L>>(root: Id, rws: &[Rewrite<L, N>], eg: &mut EGraph<L, N>) {
+pub fn pat_detour_eqsat_step(root: Id, rws: &[Rewrite<L, N>], eg: &mut EGraph<L, N>) {
     let ex = Extractor::new(&eg, AstSize);
     let ctxt_cost = compute_ctxt_costs(root, eg, &ex);
 
@@ -134,11 +137,11 @@ pub fn pat_detour_eqsat_step<L: Language + Display, N: Analysis<L>>(root: Id, rw
 }
 
 type EGData = (usize, usize);
-fn eg_data<L: Language, N: Analysis<L>>(eg: &EGraph<L, N>) -> EGData {
+fn eg_data(eg: &EGraph<L, N>) -> EGData {
     (eg.number_of_classes(), eg.total_size())
 }
 
-fn pat_cost<L: Language, N: Analysis<L>>(pat: &PatternAst<L>, subst: &Subst, ex: &Extractor<AstSize, L, N>) -> usize {
+fn pat_cost(pat: &PatternAst<L>, subst: &Subst, ex: &Extractor<AstSize, L, N>) -> usize {
     let mut vec: Vec<usize> = Vec::new();
     for i in 0..pat.as_ref().len() {
         let cost = match &pat[i.into()] {
@@ -152,7 +155,7 @@ fn pat_cost<L: Language, N: Analysis<L>>(pat: &PatternAst<L>, subst: &Subst, ex:
 
 // === misc ===
 
-pub fn lookup_pat<L: Language, N: Analysis<L>>(pat: &PatternAst<L>, eg: &EGraph<L, N>, subst: &Subst) -> Option<Id> {
+pub fn lookup_pat(pat: &PatternAst<L>, eg: &EGraph<L, N>, subst: &Subst) -> Option<Id> {
     let mut vec = Vec::new();
     for i in 0..pat.as_ref().len() {
         match &pat[i.into()] {
