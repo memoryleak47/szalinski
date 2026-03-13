@@ -81,7 +81,6 @@ use std::fmt::Display;
 use std::time::{Instant, Duration};
 
 pub fn eqsat_pat_detour(st: RecExpr<L>, rws: &[Rewrite<L, N>], time_limit_secs: f64) -> RecExpr<L> {
-    println!("Initial: {st}");
     let mut eg = EGraph::default();
     let i = eg.add_expr(&st);
 

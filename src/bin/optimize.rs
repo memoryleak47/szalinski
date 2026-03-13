@@ -353,6 +353,8 @@ fn main() {
 
     let initial_cost = CostFn.cost_rec(&initial_expr);
 
+    println!("Initial: {initial_expr}");
+
     let initial_expr = if *PRE_EXTRACT {
         let pre_rules = szalinski_egg::rules::pre_rules();
         let runner = MyRunner::new(MetaAnalysis::default())
@@ -369,6 +371,8 @@ fn main() {
     };
 
     let rules = szalinski_egg::rules::rules();
+
+    println!("Initial with pre-extract: {initial_expr}");
     let best = run_detour(initial_expr.clone(), rules);
     let best = (CostFn.cost_rec(&best), best);
 
