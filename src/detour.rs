@@ -1,5 +1,6 @@
 // === minqueue ===
 
+use noisy_float::types::{R64, r64};
 use egg::{Id, EGraph, Language, Extractor, FromOp, RecExpr, Rewrite, Subst, ENodeOrVar, PatternAst, CostFunction, Analysis};
 
 use std::cmp::Ordering;
@@ -41,16 +42,17 @@ impl<U: Ord, T: Eq> Ord for WithOrdRev<U, T> {
 
 type L = crate::cad::Cad;
 type N = crate::cad::MetaAnalysis;
-type C = egg::AstSize; // crate::cad::CostFn;
-fn mk_C() -> C { egg::AstSize }
+type C = crate::cad::CostFn;
+fn mk_C() -> C { crate::cad::CostFn }
+type Cost = R64;
 
-pub fn compute_ctxt_costs(root: Id, eg: &EGraph<L, N>, ex: &Extractor<C, L, N>) -> HashMap<Id, usize> {
+pub fn compute_ctxt_costs(root: Id, eg: &EGraph<L, N>, ex: &Extractor<C, L, N>) -> HashMap<Id, Cost> {
     let mut ctxt_cost = HashMap::new();
 
-    let mut queue: MinPrioQueue<usize, Id> = MinPrioQueue::new();
+    let mut queue: MinPrioQueue<Cost, Id> = MinPrioQueue::new();
 
     // initial
-    queue.push(0, root);
+    queue.push(r64(0.0), root);
 
     while let Some((cst, i)) = queue.pop() {
         if ctxt_cost.contains_key(&i) { continue }
@@ -64,7 +66,7 @@ pub fn compute_ctxt_costs(root: Id, eg: &EGraph<L, N>, ex: &Extractor<C, L, N>) 
                 if ctxt_cost.contains_key(&c) { continue }
 
                 let c_cost = ex.find_best_cost(c);
-                let ncst = e_cost + cst - c_cost;
+                let ncst = r64(e_cost) + cst - r64(c_cost);
                 queue.push(ncst, c);
             }
         }
@@ -102,7 +104,7 @@ pub fn pat_detour_eqsat_step(root: Id, rws: &[Rewrite<L, N>], eg: &mut EGraph<L,
     let ex = Extractor::new(&eg, mk_C());
     let ctxt_cost = compute_ctxt_costs(root, eg, &ex);
 
-    let mut matches: BTreeMap</*detour cost*/ usize, Vec<(/*rw id*/ usize, Id, Subst, /*ctxt_cost*/ usize, /*pat_cost*/ usize)>> = BTreeMap::default();
+    let mut matches: BTreeMap</*detour cost*/ Cost, Vec<(/*rw id*/ usize, Id, Subst, /*ctxt_cost*/ Cost, /*pat_cost*/ Cost)>> = BTreeMap::default();
     for (rw_i, rw) in rws.iter().enumerate() {
         let lhs_pat = rw.searcher.get_pattern_ast().unwrap();
 
@@ -111,7 +113,7 @@ pub fn pat_detour_eqsat_step(root: Id, rws: &[Rewrite<L, N>], eg: &mut EGraph<L,
             for subst in m.substs {
                 let pat_cost = pat_cost(lhs_pat, &subst, &ex);
                 // We don't subtract the root cost here, it's a constant offset, so why would we.
-                let cx_cost = *ctxt_cost.get(&lhs).unwrap_or(&10000000000); // TODO are there disconnected parts?
+                let cx_cost = *ctxt_cost.get(&lhs).unwrap_or(&r64(100000000000000.0)); // TODO so there are disconnected parts?
                 let detour_cost = cx_cost + pat_cost;
                 if !matches.contains_key(&detour_cost) {
                     matches.insert(detour_cost, Vec::new());
@@ -143,8 +145,8 @@ fn eg_data(eg: &EGraph<L, N>) -> EGData {
     (eg.number_of_classes(), eg.total_size())
 }
 
-fn pat_cost(pat: &PatternAst<L>, subst: &Subst, ex: &Extractor<C, L, N>) -> usize {
-    let mut vec: Vec<usize> = Vec::new();
+fn pat_cost(pat: &PatternAst<L>, subst: &Subst, ex: &Extractor<C, L, N>) -> R64 {
+    let mut vec: Vec<f64> = Vec::new();
     for i in 0..pat.as_ref().len() {
         let cost = match &pat[i.into()] {
             ENodeOrVar::ENode(n) => mk_C().cost(n, |i| vec[usize::from(i)]),
@@ -152,7 +154,7 @@ fn pat_cost(pat: &PatternAst<L>, subst: &Subst, ex: &Extractor<C, L, N>) -> usiz
         };
         vec.push(cost);
     }
-    vec.last().copied().unwrap()
+    r64(vec.last().copied().unwrap())
 }
 
 // === misc ===
