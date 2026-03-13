@@ -88,15 +88,23 @@ pub fn eqsat_pat_detour(st: RecExpr<L>, rws: &[Rewrite<L, N>], time_limit: usize
     let start = Instant::now();
 
     eg.rebuild();
+    let mut it_counter = 0;
     loop {
         pat_detour_eqsat_step(i, rws, &mut eg);
+        it_counter += 1;
         if start.elapsed() > Duration::from_secs(time_limit as _) { break }
     }
 
     let ex = Extractor::new(&eg, mk_C());
     let t = ex.find_best(i).1;
+
+    println!("Detour report");
+    println!("=============");
+    println!("Stop reason: timeout 10s");
+    println!("Iterations: {it_counter}");
+    println!("Egraph size: {} nodes, {} classes, {} memo", eg.total_number_of_nodes(), eg.number_of_classes(), eg.total_size());
     println!("Detour Extracted: {}", t);
-    println!("Total Size: {}", eg.total_size());
+
     t
 }
 
