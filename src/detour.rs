@@ -85,15 +85,16 @@ pub fn eqsat_pat_detour(st: RecExpr<L>, rws: &[Rewrite<L, N>], time_limit_secs: 
     let i = eg.add_expr(&st);
 
     let start = Instant::now();
+    let stop = start + Duration::from_secs_f64(time_limit_secs);
 
     let mut stop_reason = String::new();
 
     eg.rebuild();
     let mut it_counter = 0;
     loop {
-        pat_detour_eqsat_step(i, rws, &mut eg);
+        pat_detour_eqsat_step(i, rws, &mut eg, stop);
         it_counter += 1;
-        if start.elapsed() > Duration::from_secs_f64(time_limit_secs) { stop_reason = format!("timeout: {}", start.elapsed().as_secs_f64()); break }
+        if Instant::now() > stop { stop_reason = format!("timeout: {}", start.elapsed().as_secs_f64()); break }
         if eg.total_size() > node_limit { stop_reason = format!("node limit: {}", eg.total_size()); break }
     }
 
@@ -110,7 +111,7 @@ pub fn eqsat_pat_detour(st: RecExpr<L>, rws: &[Rewrite<L, N>], time_limit_secs: 
     t
 }
 
-pub fn pat_detour_eqsat_step(root: Id, rws: &[Rewrite<L, N>], eg: &mut EGraph<L, N>) {
+pub fn pat_detour_eqsat_step(root: Id, rws: &[Rewrite<L, N>], eg: &mut EGraph<L, N>, stop: Instant) {
     let ex = Extractor::new(&eg, mk_C());
     let ctxt_cost = compute_ctxt_costs(root, eg, &ex);
 
@@ -129,6 +130,7 @@ pub fn pat_detour_eqsat_step(root: Id, rws: &[Rewrite<L, N>], eg: &mut EGraph<L,
                     matches.insert(detour_cost, Vec::new());
                 }
                 matches.get_mut(&detour_cost).unwrap().push((rw_i, lhs, subst, cx_cost, pat_cost));
+                if Instant::now() > stop { return }
             }
         }
     }
@@ -146,6 +148,7 @@ pub fn pat_detour_eqsat_step(root: Id, rws: &[Rewrite<L, N>], eg: &mut EGraph<L,
             let rw = &rws[*rw_i];
             rw.applier.apply_one(eg, *lhs, subst, None, rw.name);
             if eg_data(eg) != og_data { found_cost = Some(full_cost); }
+            if Instant::now() > stop { eg.rebuild(); return }
         }
     }
 
