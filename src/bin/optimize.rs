@@ -373,7 +373,7 @@ fn main() {
     let rules = szalinski_egg::rules::rules();
 
     println!("Initial with pre-extract: {initial_expr}");
-    let best = run_detour(initial_expr.clone(), rules);
+    let best = run_by_param(initial_expr.clone(), rules);
     let best = (CostFn.cost_rec(&best), best);
 
     println!("Best ({}): {}", best.0, best.1.pretty(80));
@@ -395,6 +395,15 @@ fn main() {
 
     let out_file = std::fs::File::create(&args[2]).expect("failed to open output");
     serde_json::to_writer_pretty(out_file, &report).unwrap();
+}
+
+fn run_by_param(initial_expr: RecExpr<Cad>, rules: Vec<Rewrite<Cad, MetaAnalysis>>) -> RecExpr<Cad> {
+    sz_param!(DETOUR: bool);
+    if *DETOUR {
+        run_detour(initial_expr, rules)
+    } else {
+        run_original(initial_expr, rules)
+    }
 }
 
 fn run_original(initial_expr: RecExpr<Cad>, rules: Vec<Rewrite<Cad, MetaAnalysis>>) -> RecExpr<Cad> {
