@@ -501,6 +501,5 @@ fn do_step(cnt: usize, expr: &RecExpr<Cad>, root: Id, rws: &[Rewrite<Cad, MetaAn
 
 fn mk_checkpoint(root: Id, eg: &EGraph<Cad, MetaAnalysis>, elapsed: Duration) {
     let cost = Extractor::new(eg, CostFn).find_best_cost(root);
-    println!("# checkpoint: cost={cost}, time={}", elapsed.as_secs_f64());
-    println!("  egraph size: {} nodes, {} classes, {} memo", eg.total_number_of_nodes(), eg.number_of_classes(), eg.total_size());
+    println!("# checkpoint: cost={cost}, time={}, num-nodes={}, num-classes={}, memo-size={}", elapsed.as_secs_f64(), eg.total_number_of_nodes(), eg.number_of_classes(), eg.total_size());
 }
