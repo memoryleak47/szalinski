@@ -460,8 +460,8 @@ fn run_detour(initial_expr: RecExpr<Cad>, rules: Vec<Rewrite<Cad, MetaAnalysis>>
 
     eg.rebuild();
     let mut it_counter = 0;
-    loop {
-        pat_detour_eqsat_step(i, &rules, &mut eg, stop);
+    for cnt in 0.. {
+        do_step(cnt, &initial_expr, i, &rules, &mut eg, stop);
         mk_checkpoint(i, &eg, start.elapsed());
         it_counter += 1;
         if Instant::now() > stop { stop_reason = format!("timeout: {}", start.elapsed().as_secs_f64()); break }
@@ -479,6 +479,24 @@ fn run_detour(initial_expr: RecExpr<Cad>, rules: Vec<Rewrite<Cad, MetaAnalysis>>
     println!("Detour Extracted: {}", t);
 
     t
+}
+
+fn do_step(cnt: usize, expr: &RecExpr<Cad>, root: Id, rws: &[Rewrite<Cad, MetaAnalysis>], eg: &mut EGraph<Cad, MetaAnalysis>, stop: Instant) {
+    sz_param!(NODE_LIMIT: usize);
+
+    if cnt %2 == 0 {
+        szalinski_egg::detour::pat_detour_eqsat_step(root, rws, eg, stop)
+    } else {
+        let egr = std::mem::take(eg);
+        let mut runner = MyRunner::new(MetaAnalysis::default())
+            .with_egraph(egr)
+            .with_expr(&expr)
+            .with_iter_limit(1)
+            .with_node_limit(*NODE_LIMIT)
+            .with_time_limit(stop - Instant::now())
+            .run(rws);
+        *eg = std::mem::take(&mut runner.egraph);
+    }
 }
 
 fn mk_checkpoint(root: Id, eg: &EGraph<Cad, MetaAnalysis>, elapsed: Duration) {
