@@ -3,7 +3,7 @@ import re
 import matplotlib.pyplot as plt
 import numpy as np
 
-FACTOR = "time"
+FACTOR = "cost"
 # choose "cost", "memo-size", "time"
 
 def parse_costs(filename):
@@ -26,9 +26,9 @@ plt.figure(figsize=(12, 6))
 plt.bar(indices - width/2, costs1, width, label=file1)
 plt.bar(indices + width/2, costs2, width, label=file2)
 
-plt.xlabel('Benchmark Index (Line Number)')
-plt.ylabel('Cost')
-plt.title('Cost Comparison per Benchmark')
+plt.xlabel('Benchmark Problem')
+plt.ylabel(FACTOR)
+plt.title(f'{FACTOR} Comparison')
 plt.xticks(indices)
 plt.legend()
 plt.grid(axis='y', linestyle='--', alpha=0.7)
