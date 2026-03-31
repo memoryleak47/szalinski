@@ -19,6 +19,9 @@ pub fn detour_run<L: Language, N: Analysis<L> + Default>(roots: &[Id], rws: &[Re
 
     let mut sched = BackoffScheduler::default();
 
+    // The initial e-graph might be dirty.
+    eg.rebuild();
+
     let mut i = 0;
     'outer: loop {
         if eg.total_size() > node_limit { stop_reason = StopReason::NodeLimit(eg.total_size()); break }
