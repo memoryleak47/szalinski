@@ -12,7 +12,12 @@ pub fn detour_run<L: Language, N: Analysis<L> + Default>(roots: &[Id], rws: &[Re
     let mut stop_reason = StopReason::Saturated;
 
     let start = Instant::now();
-    let stop = start + time_limit;
+
+    let stopper = Stopper {
+        start,
+        time_limit,
+        node_limit
+    };
 
     let mut sched = SimpleScheduler;
 
@@ -21,18 +26,19 @@ pub fn detour_run<L: Language, N: Analysis<L> + Default>(roots: &[Id], rws: &[Re
 
     let mut i = 0;
     'outer: loop {
-        if eg.total_size() > node_limit { stop_reason = StopReason::NodeLimit(eg.total_size()); break }
-        if Instant::now() > stop { stop_reason = StopReason::TimeLimit(start.elapsed().as_secs_f64()); break }
+        if let Err(sr) = stopper.check_limits(eg) { stop_reason = sr; break }
 
         let mut all_matches = Vec::new();
         for rw in rws {
             all_matches.push(sched.search_rewrite(i, eg, rw));
+            if let Err(sr) = stopper.check_limits(eg) { stop_reason = sr; break 'outer }
         }
 
-        detour_step(i, all_matches, roots, rws, eg, stop, node_limit, cf, cfg_offset, cfg_unreachable_cost);
+        if let Err(sr) = detour_step(i, all_matches, roots, rws, eg, &stopper, cf, cfg_offset, cfg_unreachable_cost, &mut stop_reason) {
+            stop_reason = sr; break
+        }
 
-        if eg.total_size() > node_limit { stop_reason = StopReason::NodeLimit(eg.total_size()); break }
-        if Instant::now() > stop { stop_reason = StopReason::TimeLimit(start.elapsed().as_secs_f64()); break }
+        if let Err(sr) = stopper.check_limits(eg) { stop_reason = sr; break }
 
         for h in hooks.iter_mut() {
             if let Err(s) = h(eg) { stop_reason = StopReason::Other(s); break 'outer; }
@@ -61,23 +67,25 @@ pub fn detour_run<L: Language, N: Analysis<L> + Default>(roots: &[Id], rws: &[Re
     report
 }
 
-fn detour_step<L: Language, N: Analysis<L> + Default>(i: usize, matches: Vec<Vec<SearchMatches<L>>>, roots: &[Id], rws: &[Rewrite<L, N>], eg: &mut EGraph<L, N>, stop: Instant, node_limit: usize, cf: fn(&L) -> Cost, cfg_offset: Cost, cfg_unreachable_cost: Cost) {
+fn detour_step<L: Language, N: Analysis<L> + Default>(i: usize, matches: Vec<Vec<SearchMatches<L>>>, roots: &[Id], rws: &[Rewrite<L, N>], eg: &mut EGraph<L, N>, stopper: &Stopper, cf: fn(&L) -> Cost, cfg_offset: Cost, cfg_unreachable_cost: Cost, stop_reason: &mut StopReason) -> Result<(), StopReason> {
     if i%2 == 1 {
         for (v, rw) in matches.into_iter().zip(rws) {
             rw.applier.apply_matches(eg, &v, rw.name);
+
+            if let Err(sr) = stopper.check_limits(eg) { return Err(sr); }
         }
         eg.rebuild();
-        return;
+        return Ok(());
     }
 
-    pat_detour_eqsat_step(roots, matches, rws, eg, stop, node_limit, cf, cfg_offset, cfg_unreachable_cost);
+    pat_detour_eqsat_step(roots, matches, rws, eg, stopper, cf, cfg_offset, cfg_unreachable_cost, stop_reason)
 }
 
-fn pat_detour_eqsat_step<L: Language, N: Analysis<L>>(roots: &[Id], all_matches: Vec<Vec<SearchMatches<L>>>, rws: &[Rewrite<L, N>], eg: &mut EGraph<L, N>, stop: Instant, node_limit: usize, cf: fn(&L) -> Cost, cfg_offset: Cost, cfg_unreachable_cost: Cost) {
+fn pat_detour_eqsat_step<L: Language, N: Analysis<L>>(roots: &[Id], all_matches: Vec<Vec<SearchMatches<L>>>, rws: &[Rewrite<L, N>], eg: &mut EGraph<L, N>, stopper: &Stopper, cf: fn(&L) -> Cost, cfg_offset: Cost, cfg_unreachable_cost: Cost, stop_reason: &mut StopReason) -> Result<(), StopReason> {
     let ex = Extractor::new(&eg, AdditiveCostFn(cf));
     let ctxt_cost = compute_ctxt_costs(roots, eg, &ex, cf);
 
-    let mut matches: BTreeMap</*detour cost*/ Cost, Vec<(RewriteId, Id, Subst, /*ctxt_cost*/ Cost, /*pat_cost*/ Cost)>> = BTreeMap::default();
+    let mut matches: BTreeMap</*detour cost*/ Cost, Vec<(RewriteId, Id, Subst)>> = BTreeMap::default();
 
     for (rw_i, v) in all_matches.into_iter().enumerate() {
         let rw = &rws[rw_i];
@@ -92,8 +100,9 @@ fn pat_detour_eqsat_step<L: Language, N: Analysis<L>>(roots: &[Id], all_matches:
                 if !matches.contains_key(&detour_cost) {
                     matches.insert(detour_cost, Vec::new());
                 }
-                matches.get_mut(&detour_cost).unwrap().push((rw_i, lhs, subst, cx_cost, pat_cost));
-                if Instant::now() > stop { return }
+                matches.get_mut(&detour_cost).unwrap().push((rw_i, lhs, subst));
+
+                if let Err(sr) = stopper.check_limits(eg) { return Err(sr); }
             }
         }
     }
@@ -105,17 +114,18 @@ fn pat_detour_eqsat_step<L: Language, N: Analysis<L>>(roots: &[Id], all_matches:
 
     'outer: for (full_cost, new_apps) in matches {
         if let Some(found) = found_cost { if full_cost > found + cfg_offset { break } }
-        for (rw_i, lhs, subst, cx_cost, pat_cost) in &new_apps {
+        for (rw_i, lhs, subst) in &new_apps {
             let rw = &rws[*rw_i];
             let pat_ast = rw.searcher.get_pattern_ast();
             rw.applier.apply_one(eg, *lhs, subst, pat_ast, rw.name);
             if eg_data(eg) != og_data && found_cost.is_none() { found_cost = Some(full_cost); }
-            if Instant::now() > stop { break 'outer }
-            if eg.total_size() > node_limit { break 'outer }
+
+            if let Err(sr) = stopper.check_limits(eg) { return Err(sr); }
         }
     }
 
     eg.rebuild();
+    Ok(())
 }
 
 // === ctxt cost ===
@@ -227,5 +237,25 @@ impl<L: Language> CostFunction<L> for AdditiveCostFn<L> {
 
     fn cost<C>(&mut self, enode: &L, costs: C) -> Self::Cost where C: FnMut(Id) -> Self::Cost {
         enode.children().iter().copied().map(costs).fold(self.0(enode), |x, y| x+y)
+    }
+}
+
+// === Stopper ===
+
+struct Stopper {
+    start: Instant,
+    time_limit: Duration,
+    node_limit: usize,
+}
+
+impl Stopper {
+    fn check_limits<L: Language, N: Analysis<L>>(&self, eg: &EGraph<L, N>) -> Result<(), StopReason> {
+        let elapsed = self.start.elapsed();
+        if elapsed > self.time_limit { return Err(StopReason::TimeLimit(elapsed.as_secs_f64())) }
+
+        let size = eg.total_size();
+        if size > self.node_limit { return Err(StopReason::NodeLimit(size)) }
+
+        Ok(())
     }
 }
