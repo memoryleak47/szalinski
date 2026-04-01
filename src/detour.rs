@@ -112,7 +112,7 @@ fn pat_detour_eqsat_step<L: Language, N: Analysis<L>>(roots: &[Id], rws: &[Rewri
             let rw = &rws[*rw_i];
             let pat_ast = rw.searcher.get_pattern_ast();
             rw.applier.apply_one(eg, *lhs, subst, pat_ast, rw.name);
-            if eg_data(eg) != og_data && found_cost.is_none() { found_cost = Some(full_cost); }
+            if eg_data(eg) != og_data /* && found_cost.is_none() */ { found_cost = Some(full_cost); } // TODO isn't this crucial?
 
             if let Err(sr) = stopper.check_limits(eg) { return Err(sr); }
         }
