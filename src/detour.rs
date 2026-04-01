@@ -7,6 +7,8 @@ pub type Hook<L, N> = Box<dyn FnMut(&EGraph<L, N>) -> Result<(), String>>;
 type RewriteId = usize;
 type Cost = u128;
 
+const MATCH_LIMIT: usize = 1_000_000;
+
 // note: 'cf: fn(&L) -> Cost' will ignore the costs of the children!
 pub fn detour_run<L: Language, N: Analysis<L> + Default>(roots: &[Id], rws: &[Rewrite<L, N>], eg: &mut EGraph<L, N>, hooks: &mut [Hook<L, N>], time_limit: Duration, node_limit: usize, cf: fn(&L) -> Cost, cfg_offset: Cost, cfg_unreachable_cost: Cost) -> Report {
     let mut stop_reason = StopReason::Saturated;
@@ -63,14 +65,22 @@ pub fn detour_run<L: Language, N: Analysis<L> + Default>(roots: &[Id], rws: &[Re
 
 fn detour_step<L: Language, N: Analysis<L> + Default>(i: usize, roots: &[Id], rws: &[Rewrite<L, N>], eg: &mut EGraph<L, N>, stopper: &Stopper, cf: fn(&L) -> Cost, cfg_offset: Cost, cfg_unreachable_cost: Cost) -> Result<(), StopReason> {
     if i%2 == 1 {
-        let egr = std::mem::take(eg);
-        let mut runner = Runner::<L, N>::new(N::default())
-            .with_egraph(egr)
-            .with_iter_limit(1)
-            .with_node_limit(stopper.node_limit)
-            .with_time_limit(stopper.time_limit - stopper.start.elapsed())
-            .run(rws);
-        *eg = std::mem::take(&mut runner.egraph);
+        let mut sched = BackoffScheduler::default(); // yes, re-created every time.
+
+        let mut matches = Vec::new();
+
+        for rw in rws {
+            matches.push(sched.search_rewrite(i, eg, rw));
+            stopper.check_limits(eg)?;
+        }
+
+        for (rw, ms) in rws.iter().zip(matches.into_iter()) {
+            sched.apply_rewrite(i, eg, rw, ms);
+            stopper.check_limits(eg)?;
+        }
+
+        eg.rebuild();
+
         return Ok(());
     }
 
@@ -86,7 +96,7 @@ fn pat_detour_eqsat_step<L: Language, N: Analysis<L>>(roots: &[Id], rws: &[Rewri
     for (rw_i, rw) in rws.iter().enumerate() {
         let lhs_pat = rw.searcher.get_pattern_ast().unwrap();
 
-        for m in rw.searcher.search(eg) {
+        for m in rw.searcher.search_with_limit(eg, MATCH_LIMIT) { // limit to counter oom.
             stopper.check_limits(eg)?;
 
             let lhs = m.eclass;
