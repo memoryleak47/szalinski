@@ -463,8 +463,8 @@ fn run_detour(initial_expr: RecExpr<Cad>, rules: Vec<Rewrite<Cad, MetaAnalysis>>
     let time_limit = Duration::from_secs_f64(*TIMEOUT);
     let node_limit = *NODE_LIMIT;
 
-    let cf = |n: &Cad| -> u128 { (CostFn.cost(n, |_| 0.0) * 1000.0) as u128 };
-    let report = detour_run(&[i], &rules, &mut eg, hooks, time_limit, node_limit, cf, 10_000, 100000000000000 * 1000);
+    let cf = |n: &Cad| -> u128 { (CostFn.cost(n, |_| 0.0) * 1000_000.0) as u128 };
+    let report = detour_run(&[i], &rules, &mut eg, hooks, time_limit, node_limit, cf, 10_000_000, 100000000000000 * 1000 * 1000);
 
     println!("{}", report);
 

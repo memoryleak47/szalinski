@@ -19,8 +19,6 @@ pub fn detour_run<L: Language, N: Analysis<L> + Default>(roots: &[Id], rws: &[Re
         node_limit
     };
 
-    let mut sched = SimpleScheduler;
-
     // The initial e-graph might be dirty.
     eg.rebuild();
 
@@ -28,13 +26,7 @@ pub fn detour_run<L: Language, N: Analysis<L> + Default>(roots: &[Id], rws: &[Re
     'outer: loop {
         if let Err(sr) = stopper.check_limits(eg) { stop_reason = sr; break }
 
-        let mut all_matches = Vec::new();
-        for rw in rws {
-            all_matches.push(sched.search_rewrite(i, eg, rw));
-            if let Err(sr) = stopper.check_limits(eg) { stop_reason = sr; break 'outer }
-        }
-
-        if let Err(sr) = detour_step(i, all_matches, roots, rws, eg, &stopper, cf, cfg_offset, cfg_unreachable_cost, &mut stop_reason) {
+        if let Err(sr) = detour_step(i, roots, rws, eg, &stopper, cf, cfg_offset, cfg_unreachable_cost) {
             stop_reason = sr; break
         }
 
@@ -67,33 +59,35 @@ pub fn detour_run<L: Language, N: Analysis<L> + Default>(roots: &[Id], rws: &[Re
     report
 }
 
-fn detour_step<L: Language, N: Analysis<L> + Default>(i: usize, matches: Vec<Vec<SearchMatches<L>>>, roots: &[Id], rws: &[Rewrite<L, N>], eg: &mut EGraph<L, N>, stopper: &Stopper, cf: fn(&L) -> Cost, cfg_offset: Cost, cfg_unreachable_cost: Cost, stop_reason: &mut StopReason) -> Result<(), StopReason> {
+fn detour_step<L: Language, N: Analysis<L> + Default>(i: usize, roots: &[Id], rws: &[Rewrite<L, N>], eg: &mut EGraph<L, N>, stopper: &Stopper, cf: fn(&L) -> Cost, cfg_offset: Cost, cfg_unreachable_cost: Cost) -> Result<(), StopReason> {
     if i%2 == 1 {
-        for (v, rw) in matches.into_iter().zip(rws) {
-            rw.applier.apply_matches(eg, &v, rw.name);
-
-            if let Err(sr) = stopper.check_limits(eg) { return Err(sr); }
-        }
-        eg.rebuild();
+        let egr = std::mem::take(eg);
+        let mut runner = Runner::<L, N>::new(N::default())
+            .with_egraph(egr)
+            .with_iter_limit(1)
+            .with_node_limit(stopper.node_limit)
+            .with_time_limit(stopper.time_limit - stopper.start.elapsed())
+            .run(rws);
+        *eg = std::mem::take(&mut runner.egraph);
         return Ok(());
     }
 
-    pat_detour_eqsat_step(roots, matches, rws, eg, stopper, cf, cfg_offset, cfg_unreachable_cost, stop_reason)
+    pat_detour_eqsat_step(roots, rws, eg, stopper, cf, cfg_offset, cfg_unreachable_cost)
 }
 
-fn pat_detour_eqsat_step<L: Language, N: Analysis<L>>(roots: &[Id], all_matches: Vec<Vec<SearchMatches<L>>>, rws: &[Rewrite<L, N>], eg: &mut EGraph<L, N>, stopper: &Stopper, cf: fn(&L) -> Cost, cfg_offset: Cost, cfg_unreachable_cost: Cost, stop_reason: &mut StopReason) -> Result<(), StopReason> {
+fn pat_detour_eqsat_step<L: Language, N: Analysis<L>>(roots: &[Id], rws: &[Rewrite<L, N>], eg: &mut EGraph<L, N>, stopper: &Stopper, cf: fn(&L) -> Cost, cfg_offset: Cost, cfg_unreachable_cost: Cost) -> Result<(), StopReason> {
     let ex = Extractor::new(&eg, AdditiveCostFn(cf));
     let ctxt_cost = compute_ctxt_costs(roots, eg, &ex, cf);
 
     let mut matches: BTreeMap</*detour cost*/ Cost, Vec<(RewriteId, Id, Subst)>> = BTreeMap::default();
 
-    for (rw_i, v) in all_matches.into_iter().enumerate() {
-        let rw = &rws[rw_i];
+
+    for (rw_i, rw) in rws.iter().enumerate() {
         let lhs_pat = rw.searcher.get_pattern_ast().unwrap();
 
-        for sm in v {
-            for subst in sm.substs {
-                let lhs = sm.eclass;
+        for m in rw.searcher.search(eg) {
+            let lhs = m.eclass;
+            for subst in m.substs {
                 let pat_cost = pat_cost(lhs_pat, &subst, &ex, cf);
                 let cx_cost = *ctxt_cost.get(&lhs).unwrap_or(&cfg_unreachable_cost); // this is the cost you get from not being able to reach any root.
                 let detour_cost = cx_cost + pat_cost;
