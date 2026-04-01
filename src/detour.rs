@@ -81,11 +81,12 @@ fn pat_detour_eqsat_step<L: Language, N: Analysis<L>>(roots: &[Id], rws: &[Rewri
 
     let mut matches: BTreeMap</*detour cost*/ Cost, Vec<(RewriteId, Id, Subst)>> = BTreeMap::default();
 
-
     for (rw_i, rw) in rws.iter().enumerate() {
         let lhs_pat = rw.searcher.get_pattern_ast().unwrap();
 
         for m in rw.searcher.search(eg) {
+            if let Err(sr) = stopper.check_limits(eg) { return Err(sr); }
+
             let lhs = m.eclass;
             for subst in m.substs {
                 let pat_cost = pat_cost(lhs_pat, &subst, &ex, cf);
@@ -112,7 +113,7 @@ fn pat_detour_eqsat_step<L: Language, N: Analysis<L>>(roots: &[Id], rws: &[Rewri
             let rw = &rws[*rw_i];
             let pat_ast = rw.searcher.get_pattern_ast();
             rw.applier.apply_one(eg, *lhs, subst, pat_ast, rw.name);
-            if eg_data(eg) != og_data /* && found_cost.is_none() */ { found_cost = Some(full_cost); } // TODO isn't this crucial?
+            if eg_data(eg) != og_data && found_cost.is_none() { found_cost = Some(full_cost); }
 
             if let Err(sr) = stopper.check_limits(eg) { return Err(sr); }
         }
