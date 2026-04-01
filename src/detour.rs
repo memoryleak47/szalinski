@@ -23,19 +23,21 @@ pub fn detour_run<L: Language, N: Analysis<L> + Default>(roots: &[Id], rws: &[Re
     eg.rebuild();
 
     let mut i = 0;
-    'outer: loop {
-        if let Err(sr) = stopper.check_limits(eg) { stop_reason = sr; break }
+    loop {
+        let mut body = || {
+            stopper.check_limits(eg)?;
+            detour_step(i, roots, rws, eg, &stopper, cf, cfg_offset, cfg_unreachable_cost)?;
+            stopper.check_limits(eg)?;
 
-        if let Err(sr) = detour_step(i, roots, rws, eg, &stopper, cf, cfg_offset, cfg_unreachable_cost) {
-            stop_reason = sr; break
-        }
+            for h in hooks.iter_mut() {
+                h(eg).map_err(StopReason::Other)?;
+            }
+            i += 1;
 
-        if let Err(sr) = stopper.check_limits(eg) { stop_reason = sr; break }
+            Ok(())
+        };
 
-        for h in hooks.iter_mut() {
-            if let Err(s) = h(eg) { stop_reason = StopReason::Other(s); break 'outer; }
-        }
-        i += 1;
+        if let Err(sr) = body() { stop_reason = sr; break }
     }
 
     let total_time = start.elapsed().as_secs_f64();
@@ -85,7 +87,7 @@ fn pat_detour_eqsat_step<L: Language, N: Analysis<L>>(roots: &[Id], rws: &[Rewri
         let lhs_pat = rw.searcher.get_pattern_ast().unwrap();
 
         for m in rw.searcher.search(eg) {
-            if let Err(sr) = stopper.check_limits(eg) { return Err(sr); }
+            stopper.check_limits(eg)?;
 
             let lhs = m.eclass;
             for subst in m.substs {
@@ -97,7 +99,7 @@ fn pat_detour_eqsat_step<L: Language, N: Analysis<L>>(roots: &[Id], rws: &[Rewri
                 }
                 matches.get_mut(&detour_cost).unwrap().push((rw_i, lhs, subst));
 
-                if let Err(sr) = stopper.check_limits(eg) { return Err(sr); }
+                stopper.check_limits(eg)?;
             }
         }
     }
@@ -115,7 +117,7 @@ fn pat_detour_eqsat_step<L: Language, N: Analysis<L>>(roots: &[Id], rws: &[Rewri
             rw.applier.apply_one(eg, *lhs, subst, pat_ast, rw.name);
             if eg_data(eg) != og_data && found_cost.is_none() { found_cost = Some(full_cost); }
 
-            if let Err(sr) = stopper.check_limits(eg) { return Err(sr); }
+            stopper.check_limits(eg)?;
         }
     }
 
