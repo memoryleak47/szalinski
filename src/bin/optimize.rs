@@ -429,6 +429,8 @@ fn run_original(initial_expr: RecExpr<Cad>, rules: Vec<Rewrite<Cad, MetaAnalysis
         .with_expr(&initial_expr)
         .run(&rules);
 
+    mk_checkpoint(runner.roots[0], &runner.egraph, start.elapsed());
+
     info!(
         "Stopping after {} iters: {:?}",
         runner.iterations.len(),
@@ -465,6 +467,8 @@ fn run_detour(initial_expr: RecExpr<Cad>, rules: Vec<Rewrite<Cad, MetaAnalysis>>
 
     let cf = |n: &Cad| -> u128 { (CostFn.cost(n, |_| 0.0) * 1000_000.0) as u128 };
     let report = detour_run(&[i], &rules, &mut eg, hooks, time_limit, node_limit, cf, 100_000_000, 100000000000000 * 1000 * 1000);
+
+    mk_checkpoint(i, &eg, start.elapsed());
 
     println!("{}", report);
 
