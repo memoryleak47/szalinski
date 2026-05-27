@@ -1,0 +1,16 @@
+# checkpoint: cost=25.008041, time=0.028100186, num-nodes=3443, num-classes=1333, memo-size=4254
+# checkpoint: cost=29.005052999999997, time=0.051327038, num-nodes=4387, num-classes=1489, memo-size=4795
+# checkpoint: cost=52.01206400000001, time=0.100199882, num-nodes=6373, num-classes=1942, memo-size=7310
+# checkpoint: cost=36.017061999999996, time=0.088590947, num-nodes=6868, num-classes=1902, memo-size=7977
+# checkpoint: cost=45.009054000000006, time=0.386175114, num-nodes=11655, num-classes=4995, memo-size=16055
+# checkpoint: cost=115.00832, time=0.013989784, num-nodes=4801, num-classes=2026, memo-size=5108
+# checkpoint: cost=31.008035000000003, time=0.109081556, num-nodes=6690, num-classes=2978, memo-size=6915
+# checkpoint: cost=52.013113999999995, time=0.507317902, num-nodes=12680, num-classes=5402, memo-size=14917
+# checkpoint: cost=35.008044999999996, time=0.001550066, num-nodes=557, num-classes=202, memo-size=622
+# checkpoint: cost=34.01406, time=0.056344245, num-nodes=5198, num-classes=1902, memo-size=5798
+# checkpoint: cost=46.00508, time=0.003165923, num-nodes=691, num-classes=248, memo-size=719
+# checkpoint: cost=29.005052999999997, time=0.051938288, num-nodes=4387, num-classes=1489, memo-size=4795
+# checkpoint: cost=52.013113999999995, time=0.540817369, num-nodes=12680, num-classes=5402, memo-size=14917
+# checkpoint: cost=52.01206400000001, time=0.10187475, num-nodes=6373, num-classes=1942, memo-size=7310
+# checkpoint: cost=77.00606900000001, time=2.153824955, num-nodes=30145, num-classes=6613, memo-size=31802
+# checkpoint: cost=39.008103000000006, time=0.002475621, num-nodes=627, num-classes=259, memo-size=639
