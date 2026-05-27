@@ -399,21 +399,13 @@ fn main() {
 
 fn run_by_param(initial_expr: RecExpr<Cad>, rules: Vec<Rewrite<Cad, MetaAnalysis>>) -> RecExpr<Cad> {
     sz_param!(DETOUR: bool);
-    if *DETOUR {
-        run_detour(initial_expr, rules)
-    } else {
-        run_original(initial_expr, rules)
-    }
-}
-
-fn run_original(initial_expr: RecExpr<Cad>, rules: Vec<Rewrite<Cad, MetaAnalysis>>) -> RecExpr<Cad> {
     sz_param!(ITERATIONS: usize);
     sz_param!(NODE_LIMIT: usize);
     sz_param!(TIMEOUT: f64);
 
     let start = Instant::now();
 
-    let runner = MyRunner::new(MetaAnalysis::default())
+    let mut runner = MyRunner::new(MetaAnalysis::default())
         .with_iter_limit(*ITERATIONS)
         .with_node_limit(*NODE_LIMIT)
         .with_time_limit(Duration::from_secs_f64(*TIMEOUT))
@@ -426,8 +418,25 @@ fn run_original(initial_expr: RecExpr<Cad>, rules: Vec<Rewrite<Cad, MetaAnalysis
             mk_checkpoint(r.roots[0], &r.egraph, start.elapsed());
             Ok(())
         })
-        .with_expr(&initial_expr)
-        .run(&rules);
+        .with_expr(&initial_expr);
+
+    runner = if *DETOUR {
+        use szalinski_egg::detour::*;
+        let cf = |n: &Cad| -> u128 { (CostFn.cost(n, |_| 0.0) * 1000_000.0) as u128 };
+        let limits = Limits {
+            node_limit: *NODE_LIMIT,
+            time_limit: Duration::from_secs_f64(*TIMEOUT),
+        };
+        let cfg = CostConfig {
+            cf,
+            offset: 100_000_000,
+            unreachable_cost: 100000000000000 * 1000 * 1000,
+        };
+
+        detour_run(runner, &rules, limits, cfg)
+    } else {
+        runner.run(&rules)
+    };
 
     mk_checkpoint(runner.roots[0], &runner.egraph, start.elapsed());
 
@@ -444,38 +453,6 @@ fn run_original(initial_expr: RecExpr<Cad>, rules: Vec<Rewrite<Cad, MetaAnalysis
     let best = Extractor::new(&runner.egraph, CostFn).find_best(root);
     let extract_time = extract_time.elapsed().as_secs_f64();
     best.1
-}
-
-
-fn run_detour(initial_expr: RecExpr<Cad>, rules: Vec<Rewrite<Cad, MetaAnalysis>>) -> RecExpr<Cad> {
-    sz_param!(TIMEOUT: f64);
-    sz_param!(NODE_LIMIT: usize);
-
-    use szalinski_egg::detour::*;
-
-    let mut eg = EGraph::default();
-    let i = eg.add_expr(&initial_expr);
-
-    let start = Instant::now();
-    let hook1: Hook<_, _> = Box::new(move |eg| {
-        mk_checkpoint(i, &eg, start.elapsed());
-        Ok(())
-    });
-    let hooks = &mut [hook1];
-    let time_limit = Duration::from_secs_f64(*TIMEOUT);
-    let node_limit = *NODE_LIMIT;
-
-    let cf = |n: &Cad| -> u128 { (CostFn.cost(n, |_| 0.0) * 1000_000.0) as u128 };
-    let report = detour_run(&[i], &rules, &mut eg, hooks, time_limit, node_limit, cf, 100_000_000, 100000000000000 * 1000 * 1000);
-
-    mk_checkpoint(i, &eg, start.elapsed());
-
-    println!("{}", report);
-
-    let ex = Extractor::new(&eg, CostFn);
-    let t = ex.find_best(i).1;
-
-    t
 }
 
 fn mk_checkpoint(root: Id, eg: &EGraph<Cad, MetaAnalysis>, elapsed: Duration) {

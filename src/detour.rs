@@ -1,158 +1,178 @@
-use egg::{Id, EGraph, Language, Extractor, FromOp, RecExpr, Rewrite, Subst, ENodeOrVar, PatternAst, CostFunction, Analysis, Runner, Report, StopReason, BackoffScheduler, SimpleScheduler, RewriteScheduler, SearchMatches};
+use egg::{Id, EGraph, Language, Extractor, FromOp, RecExpr, Rewrite, Subst, ENodeOrVar, PatternAst, CostFunction, Analysis, Runner, Report, StopReason, BackoffScheduler, SimpleScheduler, RewriteScheduler, SearchMatches, Iteration, IterationData};
 
-use std::fmt::Display;
 use std::time::{Duration, Instant};
 
-pub type Hook<L, N> = Box<dyn FnMut(&mut EGraph<L, N>) -> Result<(), String>>;
 type RewriteId = usize;
 type Cost = u128;
 
-// note: 'cf: fn(&L) -> Cost' will ignore the costs of the children!
-pub fn detour_run<L: Language, N: Analysis<L> + Default>(roots: &[Id], rws: &[Rewrite<L, N>], eg: &mut EGraph<L, N>, hooks: &mut [Hook<L, N>], time_limit: Duration, node_limit: usize, cf: fn(&L) -> Cost, cfg_offset: Cost, cfg_unreachable_cost: Cost) -> Report {
-    let mut stop_reason = StopReason::Saturated;
+pub struct Limits {
+    pub node_limit: usize,
+    pub time_limit: Duration,
+}
 
-    let start = Instant::now();
+pub struct CostConfig<L> {
+    pub cf: fn(&L) -> Cost,
+    pub offset: Cost,
+    pub unreachable_cost: Cost,
+}
 
-    let stopper = Stopper {
-        start,
-        time_limit,
-        node_limit
+#[allow(unused)]
+pub fn detour_run<L: Language, N: Analysis<L> + Default, IterData: IterationData<L, N>>(runner: Runner<L, N, IterData>, rws: &[Rewrite<L, N>], limits: Limits, cfg: CostConfig<L>) -> Runner<L, N, IterData> {
+    let mut ctxt = Ctxt {
+        runner,
+        rws,
+        limits,
+        cfg,
+
+        sched: BackoffScheduler::default(),
+        start: Instant::now(),
     };
 
-    let mut sched = BackoffScheduler::default();
-
     // The initial e-graph might be dirty.
-    eg.rebuild();
+    ctxt.runner.egraph.rebuild();
 
-    let mut i = 0;
-    loop {
+    while ctxt.runner.stop_reason.is_none() {
         let mut body = || {
-            stopper.check_limits(eg)?;
-            detour_step(i, roots, rws, eg, &stopper, cf, cfg_offset, cfg_unreachable_cost, &mut sched)?;
-            stopper.check_limits(eg)?;
+            ctxt.check_limits()?;
 
-            for h in hooks.iter_mut() {
-                h(eg).map_err(StopReason::Other)?;
-            }
-            i += 1;
+            call_hooks(&mut ctxt)?;
+
+            ctxt.check_limits()?;
+
+            detour_step(&mut ctxt)?;
+
+            ctxt.check_limits()?;
 
             Ok(())
         };
 
-        if let Err(sr) = body() { stop_reason = sr; break }
+        let it_start = Instant::now();
+        let result = body();
+
+        let it = mk_iteration(&mut ctxt, result.err(), it_start);
+        ctxt.runner.iterations.push(it);
     }
 
-    let total_time = start.elapsed().as_secs_f64();
-
-    let mut report = Runner::<L, ()>::new(()).run(&[]).report();
-
-    report.stop_reason = stop_reason;
-    report.total_time = total_time;
-
-    report.iterations = i;
-    report.egraph_nodes = eg.total_number_of_nodes();
-    report.egraph_classes = eg.number_of_classes();
-    report.memo_size = eg.total_size();
-
-    // unknown
-    report.rebuilds = 0;
-    report.search_time = 0.0;
-    report.apply_time = 0.0;
-    report.rebuild_time = 0.0;
-
-    report
+    ctxt.runner
 }
 
-fn detour_step<L: Language, N: Analysis<L> + Default>(i: usize, roots: &[Id], rws: &[Rewrite<L, N>], eg: &mut EGraph<L, N>, stopper: &Stopper, cf: fn(&L) -> Cost, cfg_offset: Cost, cfg_unreachable_cost: Cost, sched: &mut impl RewriteScheduler<L, N>) -> Result<(), StopReason> {
-    if i%2 == 1 {
+struct Ctxt<'a, L: Language, N: Analysis<L>, IterData: IterationData<L, N>> {
+    runner: Runner<L, N, IterData>,
+    rws: &'a [Rewrite<L, N>],
+    limits: Limits,
+    cfg: CostConfig<L>,
+    sched: BackoffScheduler,
+
+    start: Instant,
+}
+
+impl<'a, L: Language, N: Analysis<L>, IterData: IterationData<L, N>> Ctxt<'a, L, N, IterData> {
+    fn check_limits(&self) -> Result<(), StopReason> {
+        let elapsed = self.start.elapsed();
+        if elapsed > self.limits.time_limit { return Err(StopReason::TimeLimit(elapsed.as_secs_f64())) }
+
+        let size = self.runner.egraph.total_size();
+        if size > self.limits.node_limit { return Err(StopReason::NodeLimit(size)) }
+
+        Ok(())
+    }
+}
+
+fn call_hooks<'a, L: Language, N: Analysis<L>, IterData: IterationData<L, N>>(ctxt: &mut Ctxt<'a, L, N, IterData>) -> Result<(), StopReason> {
+    let mut hooks = std::mem::take(&mut ctxt.runner.hooks);
+    let res = hooks.iter_mut().try_for_each(|hook| hook(&mut ctxt.runner).map_err(StopReason::Other));
+    ctxt.runner.hooks = hooks;
+    res
+}
+
+fn detour_step<'a, L: Language, N: Analysis<L>, IterData: IterationData<L, N>>(ctxt: &mut Ctxt<'a, L, N, IterData>) -> Result<(), StopReason> {
+    let i = ctxt.runner.iterations.len();
+    if i % 2 == 1 {
         let mut matches = Vec::new();
 
         // here we don't use the normal scheduler, but instead we use our own!
         let mut sched = BackoffScheduler::default();
 
-        for rw in rws {
-            matches.push(sched.search_rewrite(i, eg, rw));
-            stopper.check_limits(eg)?;
+        for rw in ctxt.rws {
+            matches.push(sched.search_rewrite(i, &ctxt.runner.egraph, rw));
+            ctxt.check_limits()?;
         }
 
-        for (rw, ms) in rws.iter().zip(matches.into_iter()) {
-            sched.apply_rewrite(i, eg, rw, ms);
-            stopper.check_limits(eg)?;
+        for (rw, ms) in ctxt.rws.iter().zip(matches.into_iter()) {
+            sched.apply_rewrite(i, &mut ctxt.runner.egraph, rw, ms);
+            ctxt.check_limits()?;
         }
 
-        eg.rebuild();
+        ctxt.runner.egraph.rebuild();
 
         return Ok(());
     }
 
-    pat_detour_eqsat_step(i, roots, rws, eg, stopper, cf, cfg_offset, cfg_unreachable_cost, sched)
+    pat_detour_eqsat_step(ctxt)
 }
 
-fn pat_detour_eqsat_step<L: Language, N: Analysis<L>>(i: usize, roots: &[Id], rws: &[Rewrite<L, N>], eg: &mut EGraph<L, N>, stopper: &Stopper, cf: fn(&L) -> Cost, cfg_offset: Cost, cfg_unreachable_cost: Cost, sched: &mut impl RewriteScheduler<L, N>) -> Result<(), StopReason> {
-    let ex = Extractor::new(&eg, AdditiveCostFn(cf));
-    let ctxt_cost = compute_ctxt_costs(roots, eg, &ex, cf);
+fn pat_detour_eqsat_step<'a, L: Language, N: Analysis<L>, IterData: IterationData<L, N>>(ctxt: &mut Ctxt<'a, L, N, IterData>) -> Result<(), StopReason> {
+    let ex = Extractor::new(&ctxt.runner.egraph, AdditiveCostFn(ctxt.cfg.cf));
+    let ctxt_cost = compute_ctxt_costs(&ex, ctxt);
 
     let mut matches: BTreeMap</*detour cost*/ Cost, Vec<(RewriteId, Id, Subst)>> = BTreeMap::default();
 
-    for (rw_i, rw) in rws.iter().enumerate() {
+    for (rw_i, rw) in ctxt.rws.iter().enumerate() {
         let lhs_pat = rw.searcher.get_pattern_ast().unwrap();
 
-        for m in sched.search_rewrite(i, eg, rw) {
-            stopper.check_limits(eg)?;
+        for m in ctxt.sched.search_rewrite(ctxt.runner.iterations.len(), &ctxt.runner.egraph, rw) {
+            ctxt.check_limits()?;
 
             let lhs = m.eclass;
             for subst in m.substs {
-                let pat_cost = pat_cost(lhs_pat, &subst, &ex, cf);
-                let cx_cost = *ctxt_cost.get(&lhs).unwrap_or(&cfg_unreachable_cost); // this is the cost you get from not being able to reach any root.
+                let pat_cost = pat_cost(lhs_pat, &subst, &ex, ctxt.cfg.cf);
+                let cx_cost = *ctxt_cost.get(&lhs).unwrap_or(&ctxt.cfg.unreachable_cost); // this is the cost you get from not being able to reach any root.
                 let detour_cost = cx_cost + pat_cost;
-                if !matches.contains_key(&detour_cost) {
-                    matches.insert(detour_cost, Vec::new());
-                }
-                matches.get_mut(&detour_cost).unwrap().push((rw_i, lhs, subst));
+                matches.entry(detour_cost).or_insert(Vec::new()).push((rw_i, lhs, subst));
 
-                stopper.check_limits(eg)?;
+                ctxt.check_limits()?;
             }
         }
     }
 
     let eg_data = |eg: &EGraph<_, _>| (eg.number_of_classes(), eg.total_size());
 
-    let og_data = eg_data(eg);
+    let og_data = eg_data(&ctxt.runner.egraph);
     let mut found_cost = None;
 
-    'outer: for (full_cost, new_apps) in matches {
-        if let Some(found) = found_cost { if full_cost > found + cfg_offset { break } }
+    for (full_cost, new_apps) in matches {
+        if let Some(found) = found_cost { if full_cost > found + ctxt.cfg.offset { break } }
         for (rw_i, lhs, subst) in &new_apps {
-            let rw = &rws[*rw_i];
+            let rw = &ctxt.rws[*rw_i];
             let pat_ast = rw.searcher.get_pattern_ast();
-            rw.applier.apply_one(eg, *lhs, subst, pat_ast, rw.name);
-            if eg_data(eg) != og_data && found_cost.is_none() { found_cost = Some(full_cost); }
+            rw.applier.apply_one(&mut ctxt.runner.egraph, *lhs, subst, pat_ast, rw.name);
+            if eg_data(&ctxt.runner.egraph) != og_data && found_cost.is_none() { found_cost = Some(full_cost); }
 
-            stopper.check_limits(eg)?;
+            ctxt.check_limits()?;
         }
     }
 
-    eg.rebuild();
+    ctxt.runner.egraph.rebuild();
     Ok(())
 }
 
 // === ctxt cost ===
 
-fn compute_ctxt_costs<L: Language, N: Analysis<L>>(roots: &[Id], eg: &EGraph<L, N>, ex: &Extractor<AdditiveCostFn<L>, L, N>, cf: fn(&L) -> Cost) -> HashMap<Id, Cost> {
+fn compute_ctxt_costs<'a, L: Language, N: Analysis<L>, IterData: IterationData<L, N>>(ex: &Extractor<AdditiveCostFn<L>, L, N>, ctxt: &Ctxt<'a, L, N, IterData>) -> HashMap<Id, Cost> {
     let mut ctxt_cost = HashMap::new();
 
     let mut queue: MinPrioQueue<Cost, Id> = MinPrioQueue::new();
 
     // initial
-    for root in roots {
+    for root in &ctxt.runner.roots {
         queue.push(0, *root);
     }
 
     while let Some((cst, i)) = queue.pop() {
         if ctxt_cost.contains_key(&i) { continue }
         ctxt_cost.insert(i, cst);
-        for e in &eg[i].nodes {
-            let e_cost = AdditiveCostFn(cf).cost(e, |k| ex.find_best_cost(k));
+        for e in &ctxt.runner.egraph[i].nodes {
+            let e_cost = AdditiveCostFn(ctxt.cfg.cf).cost(e, |k| ex.find_best_cost(k));
             for &c in e.children() {
                 // optimization: don't push junk to the queue.
                 // NOTE: if we remembered what's the best thing we already pushed to the queue for some class,
@@ -248,22 +268,29 @@ impl<L: Language> CostFunction<L> for AdditiveCostFn<L> {
     }
 }
 
-// === Stopper ===
+fn mk_iteration<'a, L: Language, N: Analysis<L> + Default, IterData: IterationData<L, N>>(ctxt: &mut Ctxt<'a, L, N, IterData>, stop_reason: Option<StopReason>, it_start: Instant) -> Iteration<IterData> {
+    let eg = std::mem::take(&mut ctxt.runner.egraph);
+    let mut mock_runner = Runner::new(N::default()).with_egraph(eg);
+    mock_runner.roots = ctxt.runner.roots.clone();
+    mock_runner = mock_runner.run([]);
+    let mut it = mock_runner.iterations.pop().unwrap();
+    ctxt.runner.egraph = mock_runner.egraph;
 
-struct Stopper {
-    start: Instant,
-    time_limit: Duration,
-    node_limit: usize,
-}
+    it.egraph_nodes = it.egraph_nodes; // set correctly by mock runner
+    it.egraph_classes = it.egraph_classes; // set correctly by mock runner
+    it.applied = Default::default(); // set to default
+    it.hook_time = 0.0; // set to default
+    it.search_time = 0.0; // set to default
+    it.apply_time = 0.0; // set to default
+    it.rebuild_time = 0.0; // set to default
+    it.total_time = it_start.elapsed().as_secs_f64(); // Note that this iteration counting counts *everything* in an iteration. This is different from egg, which excludes hooks etc.
+    it.data = it.data; // set correctly by mock runner
+    it.n_rebuilds = 0; // set to default
+    it.stop_reason = stop_reason.clone();
 
-impl Stopper {
-    fn check_limits<L: Language, N: Analysis<L>>(&self, eg: &EGraph<L, N>) -> Result<(), StopReason> {
-        let elapsed = self.start.elapsed();
-        if elapsed > self.time_limit { return Err(StopReason::TimeLimit(elapsed.as_secs_f64())) }
-
-        let size = eg.total_size();
-        if size > self.node_limit { return Err(StopReason::NodeLimit(size)) }
-
-        Ok(())
+    if stop_reason.is_some() {
+        ctxt.runner.stop_reason = stop_reason;
     }
+
+    it
 }
