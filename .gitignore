@@ -19,3 +19,4 @@ bad/thingiverse*
 bad/inputs*
 
 __pycache__
+src/scheduler.rs
