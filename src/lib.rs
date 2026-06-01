@@ -1,4 +1,4 @@
-pub mod detour;
+pub mod scheduler;
 
 #[macro_export]
 macro_rules! sz_param {

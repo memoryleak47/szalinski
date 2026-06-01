@@ -421,7 +421,6 @@ fn run_by_param(initial_expr: RecExpr<Cad>, rules: Vec<Rewrite<Cad, MetaAnalysis
         .with_expr(&initial_expr);
 
     runner = if *DETOUR {
-        use szalinski_egg::detour::*;
         let cf = |n: &Cad| -> u128 { (CostFn.cost(n, |_| 0.0) * 1000_000.0) as u128 };
         let limits = Limits {
             node_limit: *NODE_LIMIT,
@@ -433,7 +432,7 @@ fn run_by_param(initial_expr: RecExpr<Cad>, rules: Vec<Rewrite<Cad, MetaAnalysis
             unreachable_cost: 100000000000000 * 1000 * 1000,
         };
 
-        detour_run(runner, &rules, limits, cfg)
+        szalinski_egg::scheduler::run(runner, &rules, limits, cfg)
     } else {
         runner.run(&rules)
     };
