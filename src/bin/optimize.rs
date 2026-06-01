@@ -398,7 +398,6 @@ fn main() {
 }
 
 fn run_by_param(initial_expr: RecExpr<Cad>, rules: Vec<Rewrite<Cad, MetaAnalysis>>) -> RecExpr<Cad> {
-    sz_param!(DETOUR: bool);
     sz_param!(ITERATIONS: usize);
     sz_param!(NODE_LIMIT: usize);
     sz_param!(TIMEOUT: f64);
@@ -420,7 +419,8 @@ fn run_by_param(initial_expr: RecExpr<Cad>, rules: Vec<Rewrite<Cad, MetaAnalysis
         })
         .with_expr(&initial_expr);
 
-    runner = if *DETOUR {
+    runner = {
+        use szalinski_egg::scheduler::{Limits, CostConfig};
         let cf = |n: &Cad| -> u128 { (CostFn.cost(n, |_| 0.0) * 1000_000.0) as u128 };
         let limits = Limits {
             node_limit: *NODE_LIMIT,
@@ -433,8 +433,6 @@ fn run_by_param(initial_expr: RecExpr<Cad>, rules: Vec<Rewrite<Cad, MetaAnalysis
         };
 
         szalinski_egg::scheduler::run(runner, &rules, limits, cfg)
-    } else {
-        runner.run(&rules)
     };
 
     mk_checkpoint(runner.roots[0], &runner.egraph, start.elapsed());
