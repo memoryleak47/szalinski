@@ -413,10 +413,6 @@ fn run_by_param(initial_expr: RecExpr<Cad>, rules: Vec<Rewrite<Cad, MetaAnalysis
                 .with_ban_length(5)
                 .with_initial_match_limit(1_000_00),
         )
-        .with_hook(move |r| {
-            mk_checkpoint(r.roots[0], &r.egraph, start.elapsed());
-            Ok(())
-        })
         .with_expr(&initial_expr);
 
     runner = {
@@ -435,8 +431,6 @@ fn run_by_param(initial_expr: RecExpr<Cad>, rules: Vec<Rewrite<Cad, MetaAnalysis
         szalinski_egg::scheduler::run(runner, &rules, limits, cfg)
     };
 
-    mk_checkpoint(runner.roots[0], &runner.egraph, start.elapsed());
-
     info!(
         "Stopping after {} iters: {:?}",
         runner.iterations.len(),
@@ -450,9 +444,4 @@ fn run_by_param(initial_expr: RecExpr<Cad>, rules: Vec<Rewrite<Cad, MetaAnalysis
     let best = Extractor::new(&runner.egraph, CostFn).find_best(root);
     let extract_time = extract_time.elapsed().as_secs_f64();
     best.1
-}
-
-fn mk_checkpoint(root: Id, eg: &EGraph<Cad, MetaAnalysis>, elapsed: Duration) {
-    let cost = Extractor::new(eg, CostFn).find_best_cost(root);
-    println!("# checkpoint: cost={cost}, time={}, num-nodes={}, num-classes={}, memo-size={}", elapsed.as_secs_f64(), eg.total_number_of_nodes(), eg.number_of_classes(), eg.total_size());
 }
