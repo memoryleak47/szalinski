@@ -402,8 +402,6 @@ fn run_by_param(initial_expr: RecExpr<Cad>, rules: Vec<Rewrite<Cad, MetaAnalysis
     sz_param!(NODE_LIMIT: usize);
     sz_param!(TIMEOUT: f64);
 
-    let start = Instant::now();
-
     let mut runner = MyRunner::new(MetaAnalysis::default())
         .with_iter_limit(*ITERATIONS)
         .with_node_limit(*NODE_LIMIT)
@@ -440,8 +438,6 @@ fn run_by_param(initial_expr: RecExpr<Cad>, rules: Vec<Rewrite<Cad, MetaAnalysis
     runner.print_report();
 
     let root = runner.roots[0];
-    let extract_time = Instant::now();
     let best = Extractor::new(&runner.egraph, CostFn).find_best(root);
-    let extract_time = extract_time.elapsed().as_secs_f64();
     best.1
 }
